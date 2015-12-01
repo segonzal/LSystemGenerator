@@ -1,5 +1,4 @@
 # TODO:
-# Agregar clave #tropism <NUM> <NUM> <NUM>
 # Incorporar Tortuga3D y generar primeros modelos en OpenSCAD
 # Modificar RULE para agregar condiciones
 # Modificar env_lookup para que considere condiciones
@@ -9,38 +8,40 @@
 
 import re
 
-LFUN = "[FfG+-^&/|$\[\]{.}~!'%\\\\]"
-ONEARGFUN = "[FfG+-^&/!%\\\\]"
-NOARGFUN = "[|$\[\]{.}~']"
+ONEARGFUN = "FfG+-^&/!%\\\\"
+NOARGFUN  = "|$\[\]{.}~'"
 
-NUM = "(?:\d*\.?\d+)"
-SYM = "(?:[a-zA-Z]+\d*)"
-APP = "([A-Z][a-z]*|"+LFUN+"(?![a-z]+)) *(\([^()]*\))?"
+# Commonly used regex
+NUM   = "(?:\d*\.?\d+)"
+SYM   = "(?:[a-zA-Z]+\d*)"
+LFUN  = "["+ONEARGFUN+NOARGFUN+"]"
 DEFUN = "("+SYM+"|"+LFUN+") *(\([^()+\-*/^\d]*\))?"
 
 NUMVAR = "(?:"+SYM+"|"+NUM+")"
-NUMEXPR = "\s*("+NUMVAR+")|([+\-*/^])"
-NUM2 = NUMVAR+"(?:[+\-*/^]"+NUMVAR+")+|"+NUMVAR
+NUMOPS = "-?"+NUMVAR+"(?:[+\-*/^]-?"+NUMVAR+")*"
 
-BOOL = "*|"+NUMVAR+"(<|>|<=|>=|=|!=)"+NUMVAR
-BOOLVAR = BOOL+"[&|^]"+BOOL+"|!?"+BOOL
+#BOOL = "*|"+NUMVAR+"(<|>|<=|>=|=|!=)"+NUMVAR
+#BOOLVAR = BOOL+"[&|^]"+BOOL+"|!?"+BOOL
 
-WHITESPACE = re.compile("\s*")
-COMMENT = re.compile("(/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/)|(//.*(?=\n))")
-ASSIGN = re.compile("^\s*("+SYM+") *=\s*("+NUM2+")\s*$")
-DEFINE = re.compile("^\s*#define +("+SYM+") +("+NUM+")\s*$")
+# Values
+APP     = re.compile("([A-Z][a-z]*|"+LFUN+"(?![a-z]+)) *(\([^()]*\))?")
+NUMEXPR = re.compile("\s*("+NUMVAR+")|([+\-*/^])")
+NUMPAT  = re.compile("("+NUM+")")
+INTPAT  = re.compile("^([0-9]+)$")
+SYMPAT  = re.compile("("+SYM+")")
+
+# Instructions
+ASSIGN    = re.compile("^\s*("+SYM+") *=\s*("+NUMOPS+")\s*$")
+DEFINE    = re.compile("^\s*#define +("+SYM+") +("+NUM+")\s*$")
 ITERATION = re.compile("^\s*#iterate +("+NUM+")\s*$")
-DELTA = re.compile("^\s*#delta +("+NUM+")\s*$")
-#TROPISM  = re.compile("^\s*#delta +("+NUM+")\s*$")
+DELTA     = re.compile("^\s*#delta +("+NUM+")\s*$")
+TROPISM   = re.compile("^\s*#tropism +("+NUMOPS+") +("+NUMOPS+") +("+NUMOPS+")\s*$")
+BEGIN     = re.compile("^\s*begin\s*:\s*(.+)\s*$")
+RULE      = re.compile("^\s*rule\s*:\s*"+DEFUN+"\s*::=\s*(.+)\s*$")#It could be needed a multiline definition of fun
 
-BEGIN = re.compile("^\s*begin\s*:\s*(.+)\s*$")
-RULE = re.compile("^\s*rule\s*:\s*"+DEFUN+"\s*::=\s*(.+)\s*$") #It could be needed a multiline definition of fun
-
-APPLICATION = re.compile(APP)
-NUMERICEXPRESSION = re.compile(NUMEXPR)
-NUMPAT = re.compile("("+NUM+")")
-INTPAT = re.compile("^([0-9]+)$")
-SYMPAT = re.compile("("+SYM+")")
+# Others
+WHITESPACE = re.compile("\s*")
+COMMENT    = re.compile("(/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/)|(//.*(?=\n))")
 
 OPINFO = {
 	'||': (5   ,'LEFT'),
@@ -100,7 +101,7 @@ class LParser:
 		self.curToken = None
 
 	def genNumExprToken(self,val):
-		for (num,op) in NUMERICEXPRESSION.findall(val):
+		for (num,op) in NUMEXPR.findall(val):
 			if NUMPAT.match(num):
 				yield Token('NUM', num)
 			elif SYMPAT.match(num):
@@ -109,7 +110,7 @@ class LParser:
 				yield Token('BINOP',op)
 
 	def genArgExprToken(self,args,i,line):
-		args = APPLICATION.findall(args)
+		args = APP.findall(args)
 		if len(args) == 0: raise SyntaxError("Wrong defined rule. at line %i:\n%s" % (i,line))
 		for (F,args) in args:
 			yield Token('APP',F)
@@ -132,12 +133,16 @@ class LParser:
 				(sym,val) = ASSIGN.findall(line)[0]
 				yield Token('ASIGN',sym)
 				for s in self.genNumExprToken(val): yield s
-			elif DEFINE.match(line):
+			elif DEFINE.match(line):# TODO: Can compute the value of delta?
 				(key,value) = DEFINE.findall(line)[0]
 				yield Token('DEF',key)
 				yield Token('NUM', value)
+			elif TROPISM.match(line):
+				yield Token('TROPISM',None)
+				for v in TROPISM.findall(line)[0]:
+					for s in self.genNumExprToken(v): yield s
 			elif DELTA.match(line):
-				value = DELTA.findall(line)[0]
+				value = DELTA.findall(line)[0]# TODO: Can compute the value of delta?
 				yield Token('DELTA', None)
 				yield Token('NUM', value)
 			elif BEGIN.match(line):
@@ -287,18 +292,22 @@ class LParser:
 			cur = self.curToken
 			if cur.name == 'ASIGN':
 				self.getNextToken()
-				env[cur.value] = self.computeNumExpr(1)
+				env[cur.value] = self.computeNumExpr(1)(env)
 			elif cur.name == 'DEF':
 				self.getNextToken()
 				env[cur.value] = float(self.curToken.value)
 				self.getNextToken()
+			elif cur.name == 'TROPISM':
+				self.getNextToken()
+				x = self.computeNumExpr(1)(env)
+				y = self.computeNumExpr(1)(env)
+				z = self.computeNumExpr(1)(env)
 			elif cur.name == 'DELTA':
 				self.getNextToken()
 				delta = float(self.curToken.value)
 				self.getNextToken()
 			elif cur.name == 'BEGIN':
 				self.getNextToken()
-				#begin = self.computeApp()
 				body = []
 				while self.curToken is not None and self.curToken.name == 'APP':
 					body.append( self.computeApp() )
@@ -309,7 +318,7 @@ class LParser:
 				iteration = float(cur.value)
 				self.getNextToken()
 			else:
-				raise ValueError("This should never happen. I hope.")
+				raise ValueError("Token not understood.")
 		return lambda: begin(env,iteration)
 
 def parse(text):
@@ -343,9 +352,11 @@ def TEST(text,res):
 # rule: B(l,w) ::= !(w)F(l)[+(a1 )$B(l*r1 ,w*wr )][-(a2 )$B(l*r2 ,w*wr )]
 
 text = """
+n=3
 #iterate 2
-begin: F
-rule: F ::= F+F-F-F+F
+#tropism -2*-n*4 3.4 4.5
+begin: F(90)
+rule: F(l) ::= F(l)+F(l)-F(l)-F(l)+F(l)
 """
 print LSystem(text)
 print "F+F-F-F+F+F+F-F-F+F-F+F-F-F+F-F+F-F-F+F+F+F-F-F+F"
