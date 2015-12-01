@@ -34,7 +34,16 @@ F+F+F+F+F+F+F+F-F+F+F+F+F+F+F+F
   ```
   a l w width h1s
   ```
+* **Numeric expression:** `<NUMEXPR>`
 
+  Numeric operations between numbers and symbols.
+
+  Supports addition, subtraction, multiplication, division and power.
+
+  >**Examples:**
+  ```
+  34 l s+w 2-3 2*s 4.0/2 2^3 -k
+  ```
 * **Rule names:** `<FUN>`
 
   Rules are LSDL functions. All rule names must start with a major case character and can be followed only by a combination of lower case characters and numbers.
@@ -72,18 +81,15 @@ F+F+F+F+F+F+F+F-F+F+F+F+F+F+F+F
   * `}` : Complete a polygon.
   * `~` : Incorporate a predefined surface.
   * `'` : Increment the current color index.
+* **Application of rule:** `<FUN> (<NUMEXPR>,...)`
 
-* **Number of iterations:** `#iterate <INT>`
+  Makes a call to the corresponding rule.
 
-  Sets the number of iterations needed to generate the model.
+  The arguments can be symbols, numbers or numeric expressions.
 
-  If no `#iterate` is written, the program iterates 0 times.
-
-  The argument must be a positive integer.
-
-  >**Example:**
+  >**Examples:**
   ```
-  #iterate 3
+  F F(l) B(l,w) A(0.876) B(5*l,0.2)
   ```
 * **Initiator clause:** `begin: <APP> ...`
 
@@ -114,21 +120,61 @@ F+F+F+F+F+F+F+F-F+F+F+F+F+F+F+F
   ```
 
   **Special rules** can be redefined, but the number of arguments must be maintained.
-* **Application of rule:** `<FUN> (<NUMEXPR>,...)`
+* **Number of iterations:** `#iterate <INT>`
 
-  Makes a call to the corresponding rule.
+  Sets the number of iterations needed to generate the model.
 
-  The arguments can be symbols, numbers or numeric expressions.
+  If no `#iterate` is written, the program iterates 0 times.
 
-  >**Examples:**
+  The argument must be a positive integer.
+
+  >**Example:**
   ```
-  F F(l) B(l,w) A(0.876) B(5*l,0.2)
+  #iterate 3
   ```
-* **Numeric expression:** `<NUMEXPR>`
 * **Symbol definition:** `#define <SYM> <NUM>`
+
+  A symbol definition lets you set a value to a symbol. This symbol can then be used in the application of rules as arguments.
+
+  >**Example:**
+  ```
+  #define r 2
+  #define r0 -3.87
+  #define width 0.5
+  ```
 * **Set the rotation angle:** `#delta <NUMEXPR>`
+
+  Sets the default angle (in degrees) for the argument-less rotation rules like: `+`, `-`, `/`, `\`, `^` and `&`.
+
+  >**Example:**
+  ```
+  #delta 180
+  #delta 33.33
+  #delta -45*s
+  ```
 * **Set a tropism:** `#tropism <NUMEXPR> <NUMEXPR> <NUMEXPR>`
+
+  The branches of trees are bent by wind, gravity and phototropism. The direction of these changes can be represented by a 3 component vector named Tropism.
+
+  The Tropism vector is not normalized before applying.
+
+  >**Example:**
+  ```
+  #tropism 0 0 -1 // A tropism down, maybe by gravity
+  #tropism 2 4 1
+  #tropism -0.1 1.3 -4
+  ```
 * **Asign value to a symbol:** `<SYM> = <NUMEXPR>`
+
+  Set a value to a symbol. The value can be computed as a numeric expression.
+  This symbol can then be used in the application of rules as arguments.
+
+  >**Example:**
+  ```
+  r = 2
+  l = 2*r
+  k = 2+2*x
+  ```
 
 ## To Do:
 1. Incorporate Turtle 3D and export first **OpenSCAD** models.
@@ -143,3 +189,4 @@ F+F+F+F+F+F+F+F-F+F+F+F+F+F+F+F
 10. Fix NUMVAR regex so it throws a Syntax Error for numbers ending in -.
 11. Fix argument regex to support only lower case letters followed by numbers.
 12. Cleanup regex definitions.
+15. Check syntax definitions are met.
