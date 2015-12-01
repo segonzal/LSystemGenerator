@@ -1,13 +1,11 @@
 # TODO:
-# BEGIN debe aceptar listas de APP
-# Arreglar yields (genTokens) para que sea leible
+# Agregar clave #tropism <NUM> <NUM> <NUM>
 # Incorporar Tortuga3D y generar primeros modelos en OpenSCAD
 # Modificar RULE para agregar condiciones
 # Modificar env_lookup para que considere condiciones
 # Modificar RULE para agregar probabilidades
 # Modificar env_lookup para que considere probabilidades
 # Agregar clave #ignore
-# Agregar clave #tropism <NUM> <NUM> <NUM>
 
 import re
 
@@ -17,7 +15,7 @@ NOARGFUN = "[|$\[\]{.}~']"
 
 NUM = "(?:\d*\.?\d+)"
 SYM = "(?:[a-zA-Z]+\d*)"
-APP = "("+LFUN+"|"+SYM+") *(\([^()]*\))?"
+APP = "([A-Z][a-z]*|"+LFUN+"(?![a-z]+)) *(\([^()]*\))?"
 DEFUN = "("+SYM+"|"+LFUN+") *(\([^()+\-*/^\d]*\))?"
 
 NUMVAR = "(?:"+SYM+"|"+NUM+")"
@@ -29,12 +27,13 @@ BOOLVAR = BOOL+"[&|^]"+BOOL+"|!?"+BOOL
 
 WHITESPACE = re.compile("\s*")
 COMMENT = re.compile("(/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/)|(//.*(?=\n))")
-ASSIGN = re.compile("^\s*("+SYM+") *=\s*("+NUM2+")\s*$") #Change to NUMEXPR ? (restoring to NUM)
+ASSIGN = re.compile("^\s*("+SYM+") *=\s*("+NUM2+")\s*$")
 DEFINE = re.compile("^\s*#define +("+SYM+") +("+NUM+")\s*$")
-DELTA = re.compile("^\s*#delta +("+NUM+")\s*$")
 ITERATION = re.compile("^\s*#iterate +("+NUM+")\s*$")
+DELTA = re.compile("^\s*#delta +("+NUM+")\s*$")
+#TROPISM  = re.compile("^\s*#delta +("+NUM+")\s*$")
 
-BEGIN = re.compile("^\s*begin\s*:\s*"+APP+"\s*$")
+BEGIN = re.compile("^\s*begin\s*:\s*(.+)\s*$")
 RULE = re.compile("^\s*rule\s*:\s*"+DEFUN+"\s*::=\s*(.+)\s*$") #It could be needed a multiline definition of fun
 
 APPLICATION = re.compile(APP)
@@ -95,12 +94,6 @@ def argsFromList(args):
 def throwError(err):
 	raise ValueError(err)
 
-def throwKeyFunSynErr(F,argn,i,line):
-	if argn == 0:
-		raise SyntaxError("rule %s shouldn't have any arguments. at line %i:\n%s" % (F,i,line))
-	else:
-		raise SyntaxError("rule %s must have at most one argument. at line %i:\n%s" % (F,argn,i,line))
-
 class LParser:
 	def __init__(self,text):
 		self.tokgen = self.genTokens(text)
@@ -115,17 +108,22 @@ class LParser:
 			else:
 				yield Token('BINOP',op)
 
-	def genArgExprToken(self,F,args,i):
-		yield Token('APP',F)
-		args = argsFromList(args)
-		if   F in ONEARGFUN and len(args)>1: throwKeyFunSynErr(F,1,i,line)
-		elif F in NOARGFUN  and len(args)>0: throwKeyFunSynErr(F,0,i,line)
-		for arg in args:
-			for s in self.genNumExprToken(arg): yield s
+	def genArgExprToken(self,args,i,line):
+		args = APPLICATION.findall(args)
+		if len(args) == 0: raise SyntaxError("Wrong defined rule. at line %i:\n%s" % (i,line))
+		for (F,args) in args:
+			yield Token('APP',F)
+			args = argsFromList(args)
+			if   F in ONEARGFUN and len(args)>1:
+				raise SyntaxError("rule %s shouldn't have any arguments. at line %i:\n%s" % (F,i,line))
+			elif F in NOARGFUN  and len(args)>0:
+				raise SyntaxError("rule %s must have one argument at most. at line %i:\n%s" % (F,argn,i,line))
+			for arg in args:
+				for s in self.genNumExprToken(arg): yield s
 
 	def genTokens(self,text):
 		if COMMENT.search(text):
-			text = COMMENT.sub("",text)
+			text = COMMENT.sub("",text) #Conserves \n so the line count is correct!
 		i = 1
 		for line in text.split("\n"):
 			i += 1
@@ -143,20 +141,18 @@ class LParser:
 				yield Token('DELTA', None)
 				yield Token('NUM', value)
 			elif BEGIN.match(line):
-				(F,args) = BEGIN.findall(line)[0]#TODO accept as begin a list of APPS
+				args = BEGIN.findall(line)[0]
 				yield Token('BEGIN',None)
-				#for (F,args) in APPLICATION.findall(args):
-				for s in self.genArgExprToken(F,args,i): yield s
+				for s in self.genArgExprToken(args,i,line): yield s
 			elif RULE.match(line):
 				(F,args,ret) = RULE.findall(line)[0]
 				yield Token('RULE',F)
 				args = argsFromList(args)
-				if   F in ONEARGFUN and len(args)>1: throwKeyFunSynErr(F,1,i,line)
-				elif F in NOARGFUN  and len(args)>0: throwKeyFunSynErr(F,0,i,line)
+				if   F in ONEARGFUN and len(args)>1: raise SyntaxError("rule %s shouldn't have any arguments. at line %i:\n%s" % (F,i,line))
+				elif F in NOARGFUN  and len(args)>0: raise SyntaxError("rule %s must have one argument at most. at line %i:\n%s" % (F,argn,i,line))
 				for sym in args:
 					yield Token('SYM', sym)
-				for (F,args) in APPLICATION.findall(ret):
-					for s in self.genArgExprToken(F,args,i): yield s
+				for s in self.genArgExprToken(ret,i,line): yield s
 			elif ITERATION.match(line):
 				num = ITERATION.findall(line)[0]
 				yield Token('ITER',num)
@@ -217,6 +213,7 @@ class LParser:
 		ids = []
 		while self.getNextToken().name == 'SYM':
 			ids.append(self.curToken.value)
+		# Compute th APP list
 		body = []
 		while self.curToken is not None and self.curToken.name == 'APP':
 			body.append( self.computeApp() )
@@ -229,27 +226,22 @@ class LParser:
 
 		self.getNextToken()
 		args = []
-		while self.curToken is not None and (self.curToken.name == 'SYM' or self.curToken.name == 'NUM' or self.curToken.name == 'BINOP'):
+		while self.curToken is not None and self.curToken.name in ['SYM','NUM','BINOP']:
 			args.append( self.computeNumExpr(1) )
 		return lambda env,i: self.app(fname,args,env,i)
 
 	def app(self,F,args,env,i):
 		args = map(lambda x: x(env), args )
 		if i==0:
-			#Change this line to execute the drawing operations or ignores
 			if F not in ONEARGFUN+NOARGFUN: return ''
 			if len(args)==0:
 				return F
 			else:
-				# print F,args
 				return F+"("+",".join(map(str,args))+")"
 		try:
 			c = env[(F,len(args))]
 		except KeyError as e:
 			raise Exception("There is No rule named %s defined with %i arguments." % (F,len(args)))
-		#if len(args)!=len(c.ids):
-		#	raise ValueError("T" % F+"("+",".join(c.ids)+")" )
-		#assert len(args)==len(c.ids)
 		e2 = dict(c.env,**dict(zip(c.ids, args)))
 		return c.body(e2,i-1)
 
@@ -306,7 +298,11 @@ class LParser:
 				self.getNextToken()
 			elif cur.name == 'BEGIN':
 				self.getNextToken()
-				begin = self.computeApp()
+				#begin = self.computeApp()
+				body = []
+				while self.curToken is not None and self.curToken.name == 'APP':
+					body.append( self.computeApp() )
+				begin = lambda e,i:"".join(map(lambda x: x(e,i),body))
 			elif cur.name == 'RULE':
 				self.computeFun(env)
 			elif cur.name == 'ITER':
@@ -346,21 +342,13 @@ def TEST(text,res):
 # rule: A(l,w) ::= !(w)F(l)[&(a1)B(l*r1 ,w*wr )]/(180)[&(a2 )B(l*r2 ,w*wr )]
 # rule: B(l,w) ::= !(w)F(l)[+(a1 )$B(l*r1 ,w*wr )][-(a2 )$B(l*r2 ,w*wr )]
 
-# text = """
-# #iterate 4
-# begin: AB
-# rule: A ::= G
-# rule: B ::= F
-# """
-# print LSystem(text)
-TEST("""
-#delta 90
+text = """
 #iterate 2
 begin: F
-rule: F ::= GA
-rule: A ::= F
-""",
-"F+F-F-F+F+F+F-F-F+F-F+F-F-F+F-F+F-F-F+F+F+F-F-F+F")
+rule: F ::= F+F-F-F+F
+"""
+print LSystem(text)
+print "F+F-F-F+F+F+F-F-F+F-F+F-F-F+F-F+F-F-F+F+F+F-F-F+F"
 #
 # TEST("""
 # #delta 90
